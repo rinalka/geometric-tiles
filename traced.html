@@ -13,6 +13,11 @@
   Only the colouring is new, done with the same code as the other versions
   (colour schemes, orange colour, outlines, texture, hand-drawn lines).
 
+  It can also make NEW grids in the same style ("New grid (traced style)"),
+  of any size from 8 to 18 squares wide and high, with the orange squares in
+  the same offset layout. See section 3. "Original traced" goes back to the
+  traced sample at any time.
+
   HOW THE TRACING WAS DONE (once, by a separate script - not part of this page)
   -----------------------------------------------------------------------------
     1. The 32 orange squares were found by their colour. Their corners give
@@ -24,7 +29,9 @@
        edge are cut off by the frame just like in the sample.
     3. Each square was split into 4 quarter-triangles. Quarters were joined
        into pieces wherever the sample shows no colour edge between them (a
-       square is either whole or cut along one diagonal).
+       square is either whole or cut along one diagonal). Small stray
+       triangles left over from this were joined to the neighbouring piece
+       of the same colour.
     4. The result was checked by redrawing it in the sample's own colours next
        to the original.
   The phone screenshot has two round buttons over the top corners; the
@@ -45,19 +52,21 @@
     3. <script>  - the program, in these sections:
          1. Settings           - grid size, colours, orange pattern
          2. The traced grid    - corner positions and pieces from sample.jpg
+         3. New grids          - makes new grids in the traced style
          4. Colouring          - picks a colour for each piece, and the
                                  colour scheme row (menu + colour chips)
          5. Drawing            - hand-drawn lines, and painting everything
          6. Buttons & sliders  - what each control does
          7. Saving & printing  - PNG, PDF, print
-       (There is no section 3: the other versions use it for the puzzle
-       solver, which isn't needed here because the pieces are traced.)
 
   QUICK THINGS TO CHANGE
   ----------------------
     Starting orange colour ... ORANGE (section 1) + the orange R/G/B "value"
                                attributes in the HTML and the oswatch colour
     Colour scheme menu ....... SCHEMES              (section 1)
+    New-grid style numbers ... GEN                  (section 3)
+    New-grid shapes / mix .... SHAPES and their weights (section 3)
+    Grid size range .......... the "min"/"max" of the Width/Height sliders
     Starting line wobble ..... wonk (section 5) + the slider's "value"
     Shape of the line wobble . wobblyLine()         (section 5)
     Crayon texture strength .. makeGrain()          (section 5)
@@ -132,6 +141,16 @@
   <button id="textureBtn" aria-pressed="true" onclick="toggle('texture', this)">Texture: on</button>
 </div>
 
+<!-- Grid: go back to the traced sample, or make a new grid in the same style.
+     Width / Height: number of squares (8-18); releasing a slider makes a new grid. -->
+<div class="bar">
+  <strong>Grid</strong>
+  <button onclick="loadTraced()">Original traced</button>
+  <label>Width <input id="gw" type="range" min="8" max="18" step="1" value="15" oninput="showSize()" onchange="newGrid()"><output id="gwv">15</output></label>
+  <label>Height <input id="gh" type="range" min="8" max="18" step="1" value="18" oninput="showSize()" onchange="newGrid()"><output id="ghv">18</output></label>
+  <button onclick="newGrid()">New grid (traced style)</button>
+</div>
+
 <!-- Line wobble: how much lines waver (percentage of one square). Re-wobble = new random wobbles. -->
 <div class="bar">
   <strong>Hand-drawn lines</strong>
@@ -160,7 +179,7 @@
   <label><input id="lines" type="checkbox" onchange="render()">Show grid</label>
 </div>
 
-<!-- The picture is drawn here: 960 x 1282 pixels, the same proportions as the artwork in sample.jpg. -->
+<!-- The picture is drawn here (its size changes with the grid): 960 x 1282 pixels, the same proportions as the artwork in sample.jpg. -->
 <canvas id="art" width="960" height="1282"></canvas>
 
 <!-- A line of text under the picture saying how many pieces were used -->
@@ -177,8 +196,8 @@
 const c   = document.getElementById('art');   // the canvas (drawing area)
 const ctx = c.getContext('2d');               // the "pen" used to draw on it
 
-const W = 15;              // number of squares across (traced from sample.jpg; the outer ones are cut by the frame)
-const H = 19;              // number of squares down
+let W = 15;              // number of squares across (15 x 19 for the traced sample; the outer ones are cut by the frame)
+let H = 19;              // number of squares down
 let ORANGE = 'rgb(251,106,60)';  // colour of the fixed "orange" squares (changed by the orange R/G/B sliders)
 
 // Ready-made colour schemes for the "Colour scheme" menu. The first one is
@@ -278,7 +297,7 @@ const PIECES = [
   '8,0,0 8,0,1 9,0,2 9,0,3',
   '8,0,2 8,0,3',
   '9,0,0 9,0,1 10,0,1 10,0,2',
-  '10,0,3 10,0,0 10,1,0 10,1,1 10,1,2 10,1,3 10,2,0 10,2,1',
+  '10,0,3 10,0,0 10,1,0 10,1,1 10,1,2 10,1,3 10,2,0 10,2,1 11,1,1 11,1,2',
   '11,0,0 11,0,1 11,0,2 11,0,3 12,0,2 12,0,3',
   '12,0,0 12,0,1',
   '13,0,0 13,0,1 13,0,2 13,0,3 14,0,0 14,0,1 14,0,2 14,0,3',
@@ -287,17 +306,14 @@ const PIECES = [
   '3,1,0 3,1,1 3,1,2 3,1,3 4,1,0 4,1,1 4,1,2 4,1,3',
   '6,1,0 6,1,1 7,1,0 7,1,1 7,1,2 7,1,3',
   '6,1,2 6,1,3',
-  '8,1,0 8,1,1 8,1,2 8,1,3',
-  '11,1,1 11,1,2',
+  '8,1,0 8,1,1 8,1,2 8,1,3 8,2,1 8,2,2',
   '11,1,3 11,1,0 11,2,0 11,2,1 11,2,2 11,2,3 12,1,0 12,1,1 12,1,2 12,1,3 12,2,1 12,2,2',
   '14,1,0 14,1,1',
-  '1,2,3 1,2,0',
-  '2,2,2 2,2,3',
+  '2,2,2 2,2,3 1,2,3 1,2,0',
   '3,2,0 3,2,1 3,2,2 3,2,3 4,2,1 4,2,2',
   '4,2,3 4,2,0 5,2,0 5,2,1 5,2,2 5,2,3',
   '6,2,0 6,2,1 7,2,0 7,2,1 7,2,2 7,2,3',
   '6,2,2 6,2,3 6,3,0 6,3,1 6,3,2 6,3,3',
-  '8,2,1 8,2,2',
   '8,2,3 8,2,0 9,2,0 9,2,1 9,2,2 9,2,3',
   '10,2,2 10,2,3 10,3,0 10,3,1 10,3,2 10,3,3 10,4,1 10,4,2',
   '12,2,3 12,2,0 12,3,0 12,3,1 12,3,2 12,3,3 13,3,0 13,3,1 13,3,2 13,3,3',
@@ -314,12 +330,11 @@ const PIECES = [
   '2,4,3 2,4,0 2,5,0 2,5,1 2,5,2 2,5,3',
   '3,4,0 3,4,1 3,4,2 3,4,3 4,4,2 4,4,3',
   '4,4,0 4,4,1 5,4,0 5,4,1 5,4,2 5,4,3 6,4,1 6,4,2',
-  '6,4,3 6,4,0 6,5,0 6,5,1 6,5,2 6,5,3',
-  '7,4,0 7,4,1 7,4,2 7,4,3 7,5,0 7,5,1 7,5,2 7,5,3',
+  '6,4,3 6,4,0 6,5,0 6,5,1 6,5,2 6,5,3 6,6,1 6,6,2',
+  '7,4,0 7,4,1 7,4,2 7,4,3 7,5,0 7,5,1 7,5,2 7,5,3 8,4,2 8,4,3',
   '8,4,0 8,4,1 9,4,0 9,4,1 9,4,2 9,4,3',
-  '8,4,2 8,4,3',
   '10,4,3 10,4,0 10,5,0 10,5,1 10,5,2 10,5,3 10,6,0 10,6,1',
-  '11,4,0 11,4,1 11,4,2 11,4,3 11,5,0 11,5,1 11,5,2 11,5,3 11,6,0 11,6,1 11,6,2 11,6,3',
+  '11,4,0 11,4,1 11,4,2 11,4,3 11,5,0 11,5,1 11,5,2 11,5,3 11,6,0 11,6,1 11,6,2 11,6,3 12,6,2 12,6,3 12,7,1 12,7,2',
   '12,4,0 12,4,1 13,4,0 13,4,1 13,4,2 13,4,3',
   '12,4,2 12,4,3 12,5,0 12,5,1 12,5,2 12,5,3 12,6,0 12,6,1',
   '14,4,3 14,4,0',
@@ -331,25 +346,19 @@ const PIECES = [
   '2,6,0 2,6,1 3,6,0 3,6,1 3,6,2 3,6,3 4,6,1 4,6,2',
   '2,6,2 2,6,3 2,7,1 2,7,2',
   '4,6,3 4,6,0 5,6,0 5,6,1 5,6,2 5,6,3',
-  '6,6,1 6,6,2',
-  '6,6,3 6,6,0 7,6,0 7,6,1 7,6,2 7,6,3 8,6,0 8,6,1 8,6,2 8,6,3 9,6,0 9,6,1 9,6,2 9,6,3',
-  '10,6,2 10,6,3',
-  '12,6,2 12,6,3',
+  '6,6,3 6,6,0 7,6,0 7,6,1 7,6,2 7,6,3 8,6,0 8,6,1 8,6,2 8,6,3 9,6,0 9,6,1 9,6,2 9,6,3 10,6,2 10,6,3',
   '14,6,2 14,6,3 14,7,0 14,7,1',
   '2,7,3 2,7,0',
   '4,7,0 4,7,1 4,7,2 4,7,3 4,8,0 4,8,1',
   '5,7,0 5,7,1 5,7,2 5,7,3 6,7,0 6,7,1 6,7,2 6,7,3',
   '9,7,0 9,7,1 9,7,2 9,7,3 10,7,0 10,7,1 10,7,2 10,7,3',
-  '12,7,1 12,7,2',
   '12,7,3 12,7,0 13,6,0 13,6,1 13,6,2 13,6,3 13,7,0 13,7,1 13,7,2 13,7,3',
   '14,7,2 14,7,3',
   '0,8,2 0,8,3 0,9,0 0,9,1 0,9,2 0,9,3 0,10,1 0,10,2',
   '1,8,0 1,8,1 1,8,2 1,8,3 2,8,1 2,8,2',
-  '2,8,3 2,8,0 3,8,0 3,8,1 3,8,2 3,8,3',
-  '4,8,2 4,8,3',
+  '2,8,3 2,8,0 3,8,0 3,8,1 3,8,2 3,8,3 4,8,2 4,8,3',
   '5,8,0 5,8,1 5,8,2 5,8,3 6,8,1 6,8,2',
-  '6,8,3 6,8,0 6,9,0 6,9,1 6,9,2 6,9,3 6,10,0 6,10,1',
-  '7,8,1 7,8,2',
+  '6,8,3 6,8,0 6,9,0 6,9,1 6,9,2 6,9,3 6,10,0 6,10,1 7,8,1 7,8,2',
   '7,8,3 7,8,0 8,7,0 8,7,1 8,7,2 8,7,3 8,8,0 8,8,1 8,8,2 8,8,3',
   '9,8,0 9,8,1 9,8,2 9,8,3 10,8,1 10,8,2',
   '10,8,3 10,8,0 10,9,0 10,9,1 10,9,2 10,9,3 10,10,0 10,10,1',
@@ -362,26 +371,22 @@ const PIECES = [
   '7,9,0 7,9,1 7,9,2 7,9,3 8,9,1 8,9,2',
   '8,9,3 8,9,0',
   '11,9,0 11,9,1 11,9,2 11,9,3 11,10,1 11,10,2',
-  '12,9,0 12,9,1 12,9,2 12,9,3 12,10,1 12,10,2',
+  '12,9,0 12,9,1 12,9,2 12,9,3 12,10,1 12,10,2 11,10,3 11,10,0',
   '0,10,3 0,10,0 1,10,0 1,10,1 1,10,2 1,10,3 2,10,2 2,10,3',
   '5,10,0 5,10,1 5,10,2 5,10,3 6,10,2 6,10,3',
   '7,10,0 7,10,1 7,10,2 7,10,3 8,10,1 8,10,2',
   '8,10,3 8,10,0 8,11,0 8,11,1 8,11,2 8,11,3',
   '9,10,0 9,10,1 9,10,2 9,10,3 10,10,2 10,10,3',
-  '11,10,3 11,10,0',
   '12,10,3 12,10,0 13,10,0 13,10,1 13,10,2 13,10,3 14,10,2 14,10,3',
-  '0,11,0 0,11,1 0,11,2 0,11,3 0,12,0 0,12,1 0,12,2 0,12,3',
-  '1,11,0 1,11,1 1,11,2 1,11,3 1,12,0 1,12,1 2,11,1 2,11,2',
-  '2,11,3 2,11,0',
+  '0,11,0 0,11,1 0,11,2 0,11,3 0,12,0 0,12,1 0,12,2 0,12,3 1,12,2 1,12,3',
+  '1,11,0 1,11,1 1,11,2 1,11,3 1,12,0 1,12,1 2,11,1 2,11,2 2,12,2 2,12,3',
   '4,11,0 4,11,1 4,11,2 4,11,3 4,12,0 4,12,1',
   '5,11,0 5,11,1 5,11,2 5,11,3 5,12,0 5,12,1 5,12,2 5,12,3',
   '6,11,0 6,11,1 6,11,2 6,11,3 6,12,1 6,12,2',
   '9,11,0 9,11,1 9,11,2 9,11,3 10,11,0 10,11,1 10,11,2 10,11,3',
   '12,11,0 12,11,1 12,11,2 12,11,3',
   '13,11,0 13,11,1 13,11,2 13,11,3 14,11,0 14,11,1 14,11,2 14,11,3',
-  '1,12,2 1,12,3',
-  '2,12,0 2,12,1',
-  '2,12,2 2,12,3',
+  '2,12,0 2,12,1 2,11,3 2,11,0',
   '3,12,0 3,12,1 3,12,2 3,12,3 4,12,2 4,12,3',
   '6,12,3 6,12,0 7,12,0 7,12,1 7,12,2 7,12,3',
   '8,12,0 8,12,1 9,12,0 9,12,1 9,12,2 9,12,3 10,12,1 10,12,2',
@@ -410,41 +415,33 @@ const PIECES = [
   '12,14,3 12,14,0 12,15,0 12,15,1 12,15,2 12,15,3',
   '13,14,0 13,14,1 13,14,2 13,14,3 13,15,0 13,15,1 13,15,2 13,15,3',
   '14,14,2 14,14,3 14,15,0 14,15,1 14,15,2 14,15,3 14,16,1 14,16,2',
-  '0,15,0 0,15,1 0,15,2 0,15,3 1,15,0 1,15,1 1,15,2 1,15,3 2,15,1 2,15,2',
-  '2,15,3 2,15,0',
+  '0,15,0 0,15,1 0,15,2 0,15,3 1,15,0 1,15,1 1,15,2 1,15,3 2,15,1 2,15,2 1,16,1 1,16,2',
   '4,15,2 4,15,3 4,16,0 4,16,1',
-  '9,15,0 9,15,1 9,15,2 9,15,3 10,15,0 10,15,1 10,15,2 10,15,3',
+  '9,15,0 9,15,1 9,15,2 9,15,3 10,15,0 10,15,1 10,15,2 10,15,3 10,16,0 10,16,1',
   '0,16,0 0,16,1',
   '0,16,2 0,16,3 0,17,0 0,17,1 0,17,2 0,17,3 0,18,0 0,18,1',
-  '1,16,1 1,16,2',
-  '1,16,3 1,16,0',
-  '2,16,1 2,16,2',
+  '2,16,1 2,16,2 2,15,3 2,15,0 1,16,3 1,16,0',
   '2,16,3 2,16,0 2,17,0 2,17,1 2,17,2 2,17,3 2,18,0 2,18,1',
   '3,16,0 3,16,1 3,16,2 3,16,3 4,16,2 4,16,3',
   '6,16,3 6,16,0 7,16,0 7,16,1 7,16,2 7,16,3',
   '8,16,0 8,16,1 9,16,0 9,16,1 9,16,2 9,16,3 10,16,2 10,16,3',
   '8,16,2 8,16,3 8,17,0 8,17,1 8,17,2 8,17,3 8,18,1 8,18,2',
-  '10,16,0 10,16,1',
-  '11,16,0 11,16,1',
-  '11,16,2 11,16,3',
-  '12,16,1 12,16,2',
+  '12,16,1 12,16,2 11,16,0 11,16,1',
   '12,16,3 12,16,0 13,16,0 13,16,1 13,16,2 13,16,3',
   '14,16,3 14,16,0 14,17,0 14,17,1 14,17,2 14,17,3 14,18,0 14,18,1',
   '3,17,0 3,17,1 3,17,2 3,17,3 3,18,0 3,18,1 3,18,2 3,18,3 4,18,0 4,18,1 4,18,2 4,18,3',
   '4,17,0 4,17,1 4,17,2 4,17,3',
   '6,17,0 6,17,1 7,17,0 7,17,1 7,17,2 7,17,3 7,18,0 7,18,1 7,18,2 7,18,3',
-  '6,17,2 6,17,3',
   '10,17,0 10,17,1',
-  '10,17,2 10,17,3',
-  '11,17,1 11,17,2',
+  '11,17,1 11,17,2 11,16,2 11,16,3',
   '11,17,3 11,17,0 12,17,0 12,17,1 12,17,2 12,17,3',
   '0,18,2 0,18,3',
   '1,18,0 1,18,1 2,18,2 2,18,3',
   '1,18,2 1,18,3',
   '5,18,0 5,18,1 5,18,2 5,18,3 6,18,2 6,18,3',
-  '6,18,0 6,18,1',
+  '6,18,0 6,18,1 6,17,2 6,17,3',
   '8,18,3 8,18,0 9,18,0 9,18,1 9,18,2 9,18,3',
-  '10,18,0 10,18,1 11,18,0 11,18,1 11,18,2 11,18,3 12,18,1 12,18,2',
+  '10,18,0 10,18,1 11,18,0 11,18,1 11,18,2 11,18,3 12,18,1 12,18,2 10,17,2 10,17,3',
   '10,18,2 10,18,3',
   '12,18,3 12,18,0 13,18,0 13,18,1 13,18,2 13,18,3 14,18,2 14,18,3',
 ];
@@ -460,15 +457,323 @@ let pieces = [];          // the traced pieces (each has cov = its quarters, and
 let owner  = new Map();   // quarter label -> which piece (its index in `pieces`) covers it
 let grain  = null;        // the crayon texture image (made in makeGrain)
 
-// Reads the traced pieces into `pieces` and `owner`, then colours and draws them.
-function loadTraced() {
-  pieces = PIECES.map(line => ({ cov: line.split(' ') }));
+let GRID = CORNERS;   // the corner positions currently shown (traced, or a new grid)
+
+// Shows a grid: its corner positions, picture size and pieces. Used both for
+// the traced sample and for new grids (section 3).
+function setGrid(corners, width, height, newPieces) {
+  GRID = corners;
+  c.width = width;
+  c.height = height;
+  S = c.width / W;                 // average square size, for the line wobble
+  pieces = newPieces;
   owner = new Map();
   pieces.forEach((p, n) => p.cov.forEach(u => owner.set(u, n)));
-  document.getElementById('info').textContent =
-    `${pieces.length} pieces and 32 orange squares, traced from sample.jpg`;
   newWonk();
-  recolour();
+  recolour();                      // also makes a new texture to fit the new size
+}
+
+// "Original traced" button (and the starting picture): the grid and pieces
+// exactly as traced from sample.jpg.
+function loadTraced() {
+  W = 15;
+  H = 19;
+  setGrid(CORNERS, 960, 1282, PIECES.map(line => ({ cov: line.split(' ') })));
+  document.getElementById('info').textContent =
+    `Original traced: ${pieces.length} pieces and 32 orange squares, traced from sample.jpg`;
+}
+
+
+/* =============================================================================
+   3. NEW GRIDS IN THE TRACED STYLE ("New grid" button)
+   -----------------------------------------------------------------------------
+   Makes a brand-new grid of any size (Width x Height squares, 8 to 18 each)
+   that imitates the traced sample in two ways:
+
+   a) THE PIECES. Five shapes, each in all four turns:
+        A, B, C        - your three original shapes
+        A mirrored     - A flipped left-to-right (very common in the sample)
+        Bar            - a 1 x 2 rectangle (also common in the sample)
+      Each shape is given a WEIGHT, tuned so the mix of shapes comes out like
+      the sample's (about A 31%, A mirrored 34%, bar 18%, B 15%, C rare). A "puzzle solver" fits
+      them together so every non-orange square is covered exactly once
+      (Knuth's "Algorithm X", explained in solve() below). Pieces in the
+      outermost ring may be cut by the frame, and small triangles are allowed
+      there to fill any gaps, just as the sample's edge pieces are cut off.
+
+   b) THE GRID SHAPE. Measured from the traced sample (in squares):
+        - columns that contain orange squares are ~16% wider, the columns in
+          between ~15% narrower; rows with oranges ~9% taller, others ~8%
+          shorter; plus about 9-11% random variation per column / row
+        - orange squares are a little smaller than the rest of their column
+          (about 9% narrower and 7% shorter)
+        - every grid line leans very slightly, bows gently (about 6% of a
+          square) and each corner wobbles a little more (about 7%)
+        - the frame cuts through the outermost ring of squares at a random
+          depth, so edge pieces are cut off like in the sample
+      All of these numbers are in GEN below, so they're easy to adjust.
+   ============================================================================= */
+
+// Measured from the traced sample (see above). Sizes are fractions of a square.
+const GEN = {
+  cellW: 60,              // average square width in pixels
+  cellH: 64,              // average square height (sample squares are ~7% taller than wide)
+  orangeColWidth: 1.16,   // columns containing orange squares
+  otherColWidth:  0.85,   // columns in between
+  orangeRowHeight: 1.09,  // rows containing orange squares
+  otherRowHeight:  0.92,  // rows in between
+  colVariation: 0.09,     // random extra variation per column
+  rowVariation: 0.11,     // ... per row
+  orangeShrinkW: 0.09,    // orange squares are this much narrower than their column
+  orangeShrinkH: 0.07,    // ... and this much shorter than their row
+  lean: 0.015,            // how much each line leans (per square along it)
+  bow: 0.06,              // gentle curve along each line
+  jitter: 0.07,           // small extra wobble of each corner
+  frameCutMin: 0.1,       // the frame cuts the outer ring between 10% ...
+  frameCutMax: 0.45,      // ... and 45% of the way into it
+};
+
+// The shapes, written like the original page: in your coordinates (x right, y UP,
+// one square = (0,0) to (1,1)) as lists of quarters [x, y, quarter].
+// Quarters: 0 = East (right), 1 = North (top), 2 = West (left), 3 = South (bottom).
+const full = (x, y) => [0, 1, 2, 3].map(d => [x, y, d]);
+const SHAPES = {
+  // A: square + half a square on top:   (0,0) (1,0) (1,1) (1,2) (0,1)
+  A:  { weight: 21, q: [...full(0, 0), [0, 1, 3], [0, 1, 0]] },
+  // A mirrored: the same, flipped left-to-right:   (0,0) (1,0) (1,1) (0,2) (0,1)
+  Am: { weight: 23, q: [...full(0, 0), [0, 1, 3], [0, 1, 2]] },
+  // B: trapezoid, 1 wide on the left, 3 tall on the right:   (1,0) (0,1) (0,2) (1,3)
+  B:  { weight: 18, q: [[0, 0, 1], [0, 0, 0], ...full(0, 1), [0, 2, 3], [0, 2, 0]] },
+  // C: 1 x 3 rectangle
+  C:  { weight: 2,  q: [...full(0, 0), ...full(0, 1), ...full(0, 2)] },
+  // Bar: 1 x 2 rectangle
+  Bar: { weight: 20, q: [...full(0, 0), ...full(0, 1)] },
+};
+
+// Your coordinates have y going UP; the screen has y going DOWN. This flips it.
+const toScreen = ([x, y, d]) => [x, -y, d];
+
+// Turns one quarter 90° clockwise (on screen) around the point (0,0).
+function rot90([x, y, d]) {
+  return [-y - 1, x, (d + 3) % 4];
+}
+
+// Slides a shape so its top-left square is at (0, 0).
+function normalise(q) {
+  const minX = Math.min(...q.map(u => u[0]));
+  const minY = Math.min(...q.map(u => u[1]));
+  return q.map(([x, y, d]) => [x - minX, y - minY, d]);
+}
+
+// Returns a shape (list of quarters) turned r times by 90°, ready for the screen.
+function turned(q, r) {
+  q = q.map(toScreen);
+  for (let k = 0; k < r; k++) q = q.map(rot90);
+  return normalise(q);
+}
+
+// Every possible placement of every shape, plus the edge triangles.
+function buildOptions() {
+  const units = new Set();
+  for (let j = 0; j < H; j++)
+    for (let i = 0; i < W; i++)
+      if (!isOrange(i, j))
+        for (let d = 0; d < 4; d++) units.add(key(i, j, d));
+
+  const opts = [];
+  for (const s in SHAPES) {
+    const seen = new Set();   // the bar looks the same turned 180°, so skip repeats
+    for (let r = 0; r < 4; r++) {
+      const q = turned(SHAPES[s].q, r);
+      const id = JSON.stringify(q.map(u => u.join()).sort());
+      if (seen.has(id)) continue;
+      seen.add(id);
+      for (let oy = -3; oy < H; oy++) {
+        for (let ox = -3; ox < W; ox++) {
+          const cov = q.map(([x, y, d]) => key(x + ox, y + oy, d));
+          if (cov.every(u => units.has(u))) opts.push({ shape: s, rot: r, cov });
+        }
+      }
+    }
+  }
+  // Filler: half-square triangles, only in the outermost ring of squares
+  // (which the frame cuts through anyway).
+  for (let j = 0; j < H; j++) {
+    for (let i = 0; i < W; i++) {
+      const onEdge = i === 0 || j === 0 || i === W - 1 || j === H - 1;
+      if (isOrange(i, j) || !onEdge) continue;
+      for (let d = 0; d < 4; d++)
+        opts.push({ shape: 'T', rot: d, cov: [key(i, j, d), key(i, j, (d + 1) % 4)] });
+    }
+  }
+  return { units, opts };
+}
+
+// Exact cover (Knuth's "Algorithm X"): every white quarter is covered exactly once.
+//   - Repeatedly find the quarter with the FEWEST placements able to cover it,
+//     and try those placements one by one.
+//   - Placing a piece removes every other placement that would overlap it.
+//   - If some quarter ends up with no placements left, undo the last choice and
+//     try the next one ("backtracking").
+// The order placements are tried in is random, but weighted: a shape with twice
+// the weight is about twice as likely to be tried first. Edge triangles go last.
+function solve(units, opts) {
+  const X = new Map();
+  for (const u of units) X.set(u, new Set());
+  opts.forEach((o, n) => {
+    o.pr = o.shape === 'T' ? 1000 + Math.random() : -Math.log(Math.random()) / SHAPES[o.shape].weight;
+    o.cov.forEach(u => X.get(u).add(n));
+  });
+
+  const sol = [];
+  let nodes = 0;
+
+  function select(r) {
+    const cols = [];
+    for (const j of opts[r].cov) {
+      for (const i of X.get(j))
+        for (const k of opts[i].cov)
+          if (k !== j) X.get(k).delete(i);
+      cols.push(X.get(j));
+      X.delete(j);
+    }
+    return cols;
+  }
+  function deselect(r, cols) {
+    const cv = opts[r].cov;
+    for (let n = cv.length - 1; n >= 0; n--) {
+      const j = cv[n];
+      X.set(j, cols.pop());
+      for (const i of X.get(j))
+        for (const k of opts[i].cov)
+          if (k !== j) X.get(k).add(i);
+    }
+  }
+  function go() {
+    if (++nodes > 50000) return false;   // taking too long: give up (newGrid() retries)
+    if (X.size === 0) return true;
+    let best = null, fewest = Infinity;
+    for (const [u, s] of X) {
+      if (s.size < fewest) { fewest = s.size; best = u; if (fewest <= 1) break; }
+    }
+    for (const r of [...X.get(best)].sort((a, b) => opts[a].pr - opts[b].pr)) {
+      sol.push(r);
+      const cols = select(r);
+      if (go()) return true;
+      deselect(r, cols);
+      sol.pop();
+    }
+    return false;
+  }
+  return go() ? sol.map(n => opts[n]) : null;
+}
+
+// ---- Grid shape ----
+
+// A random number with a bell-curve spread (mean 0, standard deviation 1).
+function gauss() {
+  return Math.sqrt(-2 * Math.log(1 - Math.random())) * Math.cos(2 * Math.PI * Math.random());
+}
+
+// A smooth random curve: n values that drift gently (standard deviation sd),
+// made by joining random points every ~4 steps with smooth (cosine) curves.
+function smoothNoise(n, sd) {
+  const step = 4, knots = [];
+  for (let k = 0; k <= Math.ceil(n / step) + 1; k++) knots.push(gauss() * sd);
+  const out = [];
+  for (let t = 0; t < n; t++) {
+    const k = Math.floor(t / step), f = (t % step) / step, s = (1 - Math.cos(Math.PI * f)) / 2;
+    out.push(knots[k] * (1 - s) + knots[k + 1] * s);
+  }
+  return out;
+}
+
+// Makes the corner positions for a W x H grid in the traced style.
+// Returns { corners, width, height } (corners[j][i] = [x, y] in canvas pixels).
+function makeGrid() {
+  const g = GEN;
+  // Column widths and row heights (with the orange-column / orange-row pattern).
+  const colHasOrange = i => i % 2 === 1;   // oranges sit in odd columns and odd rows
+  const widths  = [], heights = [];
+  for (let i = 0; i < W; i++)
+    widths.push(g.cellW * (colHasOrange(i) ? g.orangeColWidth : g.otherColWidth) * (1 + gauss() * g.colVariation));
+  for (let j = 0; j < H; j++)
+    heights.push(g.cellH * (j % 2 === 1 ? g.orangeRowHeight : g.otherRowHeight) * (1 + gauss() * g.rowVariation));
+
+  // Where the frame cuts the outer ring (fraction of the outer square cut off).
+  const cut = () => g.frameCutMin + Math.random() * (g.frameCutMax - g.frameCutMin);
+  const cutL = cut() * widths[0], cutR = cut() * widths[W - 1];
+  const cutT = cut() * heights[0], cutB = cut() * heights[H - 1];
+
+  // Straight positions of each grid line (left edge of column i / top of row j).
+  const xs = [-cutL], ys = [-cutT];
+  for (let i = 0; i < W; i++) xs.push(xs[i] + widths[i]);
+  for (let j = 0; j < H; j++) ys.push(ys[j] + heights[j]);
+
+  // Each vertical line leans and bows a little along its length; same for horizontal lines.
+  const vLean = xs.map(() => gauss() * g.lean * g.cellW);
+  const hLean = ys.map(() => gauss() * g.lean * g.cellH);
+  const vBow = xs.map(() => smoothNoise(H + 1, g.bow * g.cellW));
+  const hBow = ys.map(() => smoothNoise(W + 1, g.bow * g.cellH));
+
+  const corners = [];
+  for (let j = 0; j <= H; j++) {
+    const row = [];
+    for (let i = 0; i <= W; i++) {
+      row.push([
+        xs[i] + vLean[i] * (j - H / 2) + vBow[i][j] + gauss() * g.jitter * g.cellW,
+        ys[j] + hLean[j] * (i - W / 2) + hBow[j][i] + gauss() * g.jitter * g.cellH,
+      ]);
+    }
+    corners.push(row);
+  }
+
+  // Orange squares are a little smaller than their column / row: pull their corners in.
+  for (let j = 0; j < H; j++) {
+    for (let i = 0; i < W; i++) {
+      if (!isOrange(i, j)) continue;
+      const dx = g.orangeShrinkW / 2 * widths[i], dy = g.orangeShrinkH / 2 * heights[j];
+      corners[j][i][0] += dx;         corners[j][i][1] += dy;           // top-left
+      corners[j][i + 1][0] -= dx;     corners[j][i + 1][1] += dy;       // top-right
+      corners[j + 1][i][0] += dx;     corners[j + 1][i][1] -= dy;       // bottom-left
+      corners[j + 1][i + 1][0] -= dx; corners[j + 1][i + 1][1] -= dy;   // bottom-right
+    }
+  }
+
+  const width  = Math.round(xs[W] - cutR);
+  const height = Math.round(ys[H] - cutB);
+  // Make sure the outer ring of corners lies beyond the frame (so no white gaps).
+  for (let j = 0; j <= H; j++) {
+    corners[j][0][0] = Math.min(corners[j][0][0], -6);
+    corners[j][W][0] = Math.max(corners[j][W][0], width + 6);
+  }
+  for (let i = 0; i <= W; i++) {
+    corners[0][i][1] = Math.min(corners[0][i][1], -6);
+    corners[H][i][1] = Math.max(corners[H][i][1], height + 6);
+  }
+  return { corners, width, height };
+}
+
+// "New grid" button: a new traced-style grid of the chosen size, tiled and coloured.
+function newGrid() {
+  W = Number(document.getElementById('gw').value);
+  H = Number(document.getElementById('gh').value);
+
+  const { units, opts } = buildOptions();
+  let sol = null;
+  for (let t = 0; t < 20 && !sol; t++) sol = solve(units, opts.map(o => ({ ...o })));
+  if (!sol) { document.getElementById('info').textContent = 'No tiling found - try again.'; return; }
+
+  const grid = makeGrid();
+  setGrid(grid.corners, grid.width, grid.height, sol.map(p => ({ cov: p.cov, shape: p.shape })));
+
+  // Short summary under the picture.
+  const count = {};
+  sol.forEach(p => { if (p.shape !== 'T') count[p.shape] = (count[p.shape] || 0) + 1; });
+  const names = { A: 'A', Am: 'A mirrored', B: 'B', C: 'C', Bar: 'bar' };
+  document.getElementById('info').textContent = `New ${W} x ${H} grid: ` +
+    Object.keys(names).filter(k => count[k]).map(k => `${count[k]} ${names[k]}`).join(', ') +
+    `, plus ${sol.filter(p => p.shape === 'T').length} edge triangles`;
 }
 
 
@@ -588,7 +893,7 @@ function markCustom() {
    amount smoothly; "Re-wobble" makes new random numbers.
    ============================================================================= */
 
-const S = c.width / W;   // average size of one square in pixels (sets the wobble size)
+let S = c.width / W;     // average size of one square in pixels (sets the wobble size)
 
 // Current slider setting, as a fraction of a square (0.02 = 2%).
 const wonk = { wobble: 0.02 };
@@ -607,9 +912,9 @@ function newWonk() {
 // ---- Points ----
 // Each point has a name: "c3,5" = grid corner (3,5), "m3,5" = centre of square (3,5).
 
-// Where grid corner (i, j) is, in pixels (traced from the sample).
+// Where grid corner (i, j) is, in pixels (traced, or from a new grid).
 function cornerPoint(i, j) {
-  return CORNERS[j][i];
+  return GRID[j][i];
 }
 
 // Where the centre of square (i, j) is: the point where its two diagonals cross.
@@ -709,7 +1014,8 @@ function corners(i, j, d) {
   ][d];
 }
 
-// Crayon-like texture: 60,000 short, faint diagonal strokes (half light, half
+// Crayon-like texture: lots of short, faint diagonal strokes (about 60,000 for a
+// 960 x 1200 picture, fewer or more for other sizes) (half light, half
 // dark) drawn on a separate transparent image and laid over the colours.
 // Made once per colouring so it doesn't change every time the page redraws.
 // To make the texture stronger or softer, change the numbers after "Math.random()*"
@@ -719,7 +1025,8 @@ function makeGrain() {
   g.width = c.width; g.height = c.height;
   const x = g.getContext('2d');
   x.lineCap = 'round';
-  for (let n = 0; n < 60000; n++) {
+  const strokes = Math.round(60000 * (g.width * g.height) / (960 * 1200));   // same density at any picture size
+  for (let n = 0; n < strokes; n++) {
     const px = Math.random() * g.width, py = Math.random() * g.height;
     const angle  = -1.05 + (Math.random() - 0.5) * 0.5;   // roughly 60°, like hand shading
     const length = 3 + Math.random() * 9;
@@ -865,6 +1172,13 @@ function orangeColour() {
   render();
 }
 
+
+// Width / Height sliders: show the numbers while dragging
+// (releasing a slider makes a new grid, see the HTML).
+function showSize() {
+  document.getElementById('gwv').textContent = document.getElementById('gw').value;
+  document.getElementById('ghv').textContent = document.getElementById('gh').value;
+}
 
 // "Line wobble" slider: reads the value, shows it as a percentage and redraws.
 // (The random wobbles stay the same, only how strongly they are used changes.)
