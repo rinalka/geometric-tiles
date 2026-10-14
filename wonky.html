@@ -1,0 +1,932 @@
+<!doctype html>
+<!--
+================================================================================
+  WONKY TILE GENERATOR
+================================================================================
+
+  WHAT IT DOES
+  ------------
+  Draws a 16 x 20 grid of squares. Some squares are ORANGE and fixed in place
+  (in a regular pattern). Every other square is covered by coloured pieces
+  cut from 3 base shapes, each turned 0°, 90°, 180° or 270° (= 12 shapes).
+  Where a piece would stick out past the edge of the picture, the gap is
+  filled with small half-square triangles instead.
+
+  The look is based on sample.jpg (in the same folder).
+
+  This is the "wonky" version of geometric_tiles.html (which is kept as it
+  was). The tiling is worked out in exactly the same way; the differences
+  are all in how it is DRAWN (section 5):
+    - the grid corners are moved by small random amounts, so the squares
+      are slightly irregular, like the hand-drawn sample;
+    - every line wavers a little, as if drawn by hand.
+  Both can be adjusted with the "Wonkiness" sliders.
+
+  HOW TO USE
+  ----------
+  Just open this file in a web browser (double-click it). Nothing needs to
+  be installed. Everything runs in the browser using JavaScript.
+  The only thing loaded from the internet is the jsPDF library, used by
+  the "Save PDF" button.
+
+  HOW THE FILE IS ORGANISED
+  -------------------------
+    1. <style>   - how the page looks (colours, buttons, print layout)
+    2. HTML      - the buttons, sliders and the drawing area (<canvas>)
+    3. <script>  - the program, in these sections:
+         1. Settings           - grid size, colours, orange pattern
+         2. The shapes         - the 3 base shapes and how they are turned
+         3. Finding a tiling   - the "puzzle solver" that fits pieces together
+         4. Colouring          - picks a colour for each piece, and the
+                                 colour scheme row (menu + colour chips)
+         5. Drawing            - the wonky grid and hand-drawn lines, and
+                                 painting everything onto the canvas
+         6. Buttons & sliders  - what each control does
+         7. Saving & printing  - PNG, PDF, print
+
+  QUICK THINGS TO CHANGE
+  ----------------------
+    Grid size ................ W and H              (section 1)
+    Starting orange colour ... ORANGE (section 1) + the orange R/G/B "value"
+                               attributes in the HTML and the oswatch colour
+    Colour scheme menu ....... SCHEMES              (section 1)
+    Where oranges go ......... isOrange()           (section 1)
+    The shapes themselves .... SHAPES               (section 2)
+    Which rotations are used . ROTATIONS            (section 2)
+    Starting wonkiness ....... wonk (section 5) + the "value" attributes of
+                               the two Wonkiness sliders in the HTML
+    Shape of the line wobble . wobblyLine()         (section 5)
+    Crayon texture strength .. makeGrain()          (section 5)
+    Outline thickness ........ pencil(pts, 3) in render() (section 5)
+    Starting outline colour .. the R/G/B "value" attributes in the HTML,
+                               plus opt.line and the swatch colour
+================================================================================
+-->
+<html lang="en">
+<meta charset="utf-8">
+<title>Wonky Tile Generator</title>
+
+<style>
+  /* ---- General page look ---- */
+  body   { font: 15px system-ui; background: #efeae6; color: #333; text-align: center; margin: 20px; }
+  canvas { max-width: 95vw; max-height: 80vh; background: #fff; box-shadow: 0 4px 22px #0003; }
+  button, label { margin: 8px; padding: 9px; }
+  button { cursor: pointer; }
+  #info  { font-size: 13px; color: #666; }
+
+  /* ---- Toolbars (the rows of buttons at the top) ---- */
+  .bar { display: flex; flex-wrap: wrap; gap: 4px 10px; justify-content: center; align-items: center;
+         margin: 6px auto; max-width: 1100px; }
+  .bar label { margin: 0 4px; padding: 4px; }
+
+  /* ---- R / G / B sliders and the little colour preview box ---- */
+  .rgb input  { width: 90px; vertical-align: middle; }
+  .rgb output { display: inline-block; width: 2.2em; text-align: right; font-variant-numeric: tabular-nums; }
+  .swatch     { display: inline-block; width: 22px; height: 22px; border: 1px solid #888;
+                vertical-align: middle; border-radius: 3px; }
+
+  /* ---- Colour scheme chips: a colour picker with a small "x" to remove it ---- */
+  #chips { display: inline-flex; flex-wrap: wrap; gap: 4px; justify-content: center; }
+  .chip  { display: inline-flex; align-items: center; border: 1px solid #bbb; border-radius: 4px; background: #fff; padding: 1px; margin: 0; }
+  .chip input  { width: 28px; height: 24px; padding: 0; border: 0; background: none; cursor: pointer; }
+  .chip button { margin: 0; padding: 0 4px; border: 0; background: none; color: #888; font-size: 14px; line-height: 1; }
+  .chip button:hover { color: #c00; }
+  #scheme { padding: 5px; }
+
+  /* On/off buttons are shown in purple while they are "on" */
+  button[aria-pressed="true"] { background: #5b4a8c; color: #fff; border: 1px solid #5b4a8c; }
+
+  /* ---- When printing: hide everything except the picture ---- */
+  @media print {
+    body { margin: 0; background: #fff; }
+    h2, .bar, #info { display: none; }
+    canvas { max-width: 100%; max-height: 100vh; box-shadow: none; display: block; margin: 0 auto; }
+    @page { margin: 10mm; }
+  }
+</style>
+
+<h2>Wonky Tile Generator</h2>
+
+<!-- Orange tile colour: R, G, B sliders (start at the default orange 251, 106, 60) -->
+<div class="bar">
+  <strong>Orange tile colour</strong>
+  <span class="rgb">
+    <span id="oswatch" class="swatch" style="background: rgb(251,106,60)"></span>
+    <label>R <input id="or" type="range" min="0" max="255" value="251" oninput="orangeColour()"><output id="orv">251</output></label>
+    <label>G <input id="og" type="range" min="0" max="255" value="106" oninput="orangeColour()"><output id="ogv">106</output></label>
+    <label>B <input id="ob" type="range" min="0" max="255" value="60"  oninput="orangeColour()"><output id="obv">60</output></label>
+  </span>
+</div>
+
+<!-- Colour scheme: pick a ready-made scheme, or click any colour chip to change it.
+     Chips are created by showChips() in section 4. Last: texture on/off. -->
+<div class="bar">
+  <strong>Colour scheme</strong>
+  <select id="scheme" onchange="pickScheme(this.value)"></select>
+  <span id="chips"></span>
+  <button onclick="addColour()">+ Add colour</button>
+  <button id="textureBtn" aria-pressed="true" onclick="toggle('texture', this)">Texture: on</button>
+</div>
+
+<!-- Wonkiness: how far grid corners are moved, and how much lines waver
+     (both as a percentage of one square). Re-wonk = new random offsets, same tiling. -->
+<div class="bar">
+  <strong>Wonkiness</strong>
+  <label>Grid <input id="wgrid" type="range" min="0" max="30" step="1" value="12" oninput="setWonk()"><output id="wgridv">12%</output></label>
+  <label>Line wobble <input id="wline" type="range" min="0" max="8" step="0.5" value="3" oninput="setWonk()"><output id="wlinev">3%</output></label>
+  <button onclick="newWonk(); render()">Re-wonk</button>
+</div>
+
+<!-- Top row: outline on/off, outline colour (R, G, B), colours on/off -->
+<div class="bar">
+  <button id="outlineBtn" aria-pressed="true" onclick="toggle('outlines', this)">Outlines: on</button>
+  <span class="rgb">
+    <span id="swatch" class="swatch" style="background: rgb(200,200,200)"></span>
+    <label>R <input id="r" type="range" min="0" max="255" value="200" oninput="lineColour()"><output id="rv">200</output></label>
+    <label>G <input id="g" type="range" min="0" max="255" value="200" oninput="lineColour()"><output id="gv">200</output></label>
+    <label>B <input id="b" type="range" min="0" max="255" value="200" oninput="lineColour()"><output id="bv">200</output></label>
+  </span>
+  <button id="colourBtn" aria-pressed="true" onclick="toggle('colours', this)">Colours: on</button>
+</div>
+
+<!-- Second row: make a new tiling / new colours, save, print, show grid -->
+<div class="bar">
+  <button onclick="generate()">New tiling</button>
+  <button onclick="recolour()">New colours</button>
+  <button onclick="save()">Save PNG</button>
+  <button onclick="savePdf()">Save PDF</button>
+  <button onclick="window.print()">Print</button>
+  <label><input id="lines" type="checkbox" onchange="render()">Show grid</label>
+</div>
+
+<!-- The picture is drawn here. 960 x 1200 pixels = 16 x 20 squares of 60 pixels each. -->
+<canvas id="art" width="960" height="1200"></canvas>
+
+<!-- A line of text under the picture saying how many pieces were used -->
+<p id="info"></p>
+
+<!-- jsPDF: a free library that creates PDF files. Only used by the "Save PDF" button. -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+
+<script>
+/* =============================================================================
+   1. SETTINGS
+   ============================================================================= */
+
+const c   = document.getElementById('art');   // the canvas (drawing area)
+const ctx = c.getContext('2d');               // the "pen" used to draw on it
+
+const W = 16;              // number of squares across
+const H = 20;              // number of squares down
+let ORANGE = 'rgb(251,106,60)';  // colour of the fixed "orange" squares (changed by the orange R/G/B sliders)
+
+// Ready-made colour schemes for the "Colour scheme" menu. The first one is
+// used when the page opens. To add your own, copy a line and change the
+// name and the hex colours (any number of colours, at least 2).
+const SCHEMES = {
+  'Sample (purples & teals)': [
+    '#8f6fb8', '#a688c8', '#b9a3d9', '#6f5a9e', '#5b4a8c',   // purples / lavenders
+    '#4e5aa6', '#3f6fa8', '#5b8fc7', '#8a7fbf', '#6c8fb0',   // blues
+    '#3d8d9b', '#4fb3a2', '#7cc7b6', '#2e6f7a',              // teals
+    '#c77ba6', '#d98fa8', '#b25f8a', '#9a4f7a',              // pinks
+    '#3a2a48', '#4a2f55', '#7a3f5e',                         // dark plums
+    '#c9b4e0',                                               // pale lilac
+  ],
+  'Ocean':  ['#0b3c5d', '#1d5f8a', '#328cc1', '#5fb3d9', '#9fd3e6', '#2a7f7a', '#43b0a0', '#8ad1c2', '#16324f', '#d9eef2'],
+  'Sunset': ['#5c1a33', '#8e2c48', '#c2405b', '#e0726a', '#f2a65a', '#f6c87a', '#a8577e', '#6d3b6b', '#f4d9c6', '#3d1f3a'],
+  'Forest': ['#1f3b2c', '#2f5d3f', '#4a7c59', '#7aa874', '#b5c99a', '#6b4f3a', '#a07850', '#d8c9a3', '#3e5641', '#8c9c68'],
+  'Pastel': ['#f7c6d9', '#f9e0b7', '#c9e4c5', '#bde0f6', '#d7c6f2', '#fbd3c4', '#c4ece6', '#e8d5f0', '#f3f0c4', '#cfd8f7'],
+  'Greys':  ['#1e1e1e', '#3a3a3a', '#555555', '#717171', '#8e8e8e', '#aaaaaa', '#c6c6c6', '#e2e2e2'],
+};
+
+// The colours currently in use (picked at random per piece, see section 4).
+// Starts as a copy of the first scheme; the colour scheme row changes it.
+let PALETTE = [...Object.values(SCHEMES)[0]];
+
+// Says whether the square in column i, row j (both counting from 0, top-left)
+// is orange.
+//   - Only odd rows (1, 3, 5, ...) have oranges.
+//   - In those rows there is an orange every 4th column.
+//   - Rows 1, 5, 9, ... start at column 1; rows 3, 7, 11, ... start at column 3,
+//     so each orange row is shifted 2 columns from the one before.
+// This is the same diamond-like layout as in sample.jpg.
+function isOrange(i, j) {
+  return j % 2 === 1 && i % 4 === (j % 4 === 1 ? 1 : 3);
+}
+
+
+/* =============================================================================
+   2. THE SHAPES
+   -----------------------------------------------------------------------------
+   All the shapes have edges that are either straight along the grid or
+   45° diagonals. So every shape can be built from QUARTERS: each square is
+   cut along both diagonals into 4 triangles, numbered by the side they touch:
+
+            +-------+
+            |\  1  /|        0 = East  (right)
+            | \   / |        1 = North (top)
+            |2  X  0|        2 = West  (left)
+            | /   \ |        3 = South (bottom)
+            |/  3  \|
+            +-------+
+
+   A quarter is written as [x, y, d]: square (x, y), quarter number d.
+   ============================================================================= */
+
+// All 4 quarters of square (x, y), i.e. the whole square.
+const full = (x, y) => [0, 1, 2, 3].map(d => [x, y, d]);
+
+// The 3 base shapes, written in your original coordinates
+// (x to the right, y UP, one square = (0,0) to (1,1)).
+const SHAPES = {
+  // A: square + half a square on top:   (0,0) (1,0) (1,1) (1,2) (0,1)
+  //    = whole square (0,0) + the bottom and right quarters of square (0,1)
+  A: [...full(0, 0), [0, 1, 3], [0, 1, 0]],
+
+  // B: trapezoid, 1 wide on the left, 3 tall on the right:   (1,0) (0,1) (0,2) (1,3)
+  //    = top-right half of square (0,0) + whole square (0,1) + bottom-right half of square (0,2)
+  B: [[0, 0, 1], [0, 0, 0], ...full(0, 1), [0, 2, 3], [0, 2, 0]],
+
+  // C: 1 x 3 rectangle:   (0,0) (0,3) (1,3) (1,0)
+  C: [...full(0, 0), ...full(0, 1), ...full(0, 2)],
+};
+
+// Which turns are allowed: 0 = 0°, 1 = 90°, 2 = 180°, 3 = 270° (clockwise).
+// With all four, there are 3 x 4 = 12 shapes.
+const ROTATIONS = [0, 1, 2, 3];
+
+// Your coordinates have y going UP; the screen has y going DOWN. This flips it.
+const toScreen = ([x, y, d]) => [x, -y, d];
+
+// Turns one quarter 90° clockwise (on screen) around the point (0,0).
+// The square moves, and the quarter's side number moves on by one
+// (East -> South, North -> East, ...).
+function rot90([x, y, d]) {
+  return [-y - 1, x, (d + 3) % 4];
+}
+
+// Slides a shape so its top-left square is at (0, 0).
+function normalise(q) {
+  const minX = Math.min(...q.map(u => u[0]));
+  const minY = Math.min(...q.map(u => u[1]));
+  return q.map(([x, y, d]) => [x - minX, y - minY, d]);
+}
+
+// Returns a shape (list of quarters) turned r times by 90°, ready for the screen.
+function turned(q, r) {
+  q = q.map(toScreen);
+  for (let k = 0; k < r; k++) q = q.map(rot90);
+  return normalise(q);
+}
+
+// Turns a quarter into a text label like "3,5,1", so it can be stored in Sets/Maps.
+const key = (i, j, d) => i + ',' + j + ',' + d;
+
+
+/* =============================================================================
+   3. FINDING A TILING (the puzzle solver)
+   -----------------------------------------------------------------------------
+   The task: cover every quarter of every non-orange square exactly once,
+   with no overlaps and no gaps. This is a classic "exact cover" puzzle,
+   solved here with Donald Knuth's "Algorithm X":
+
+     - List every possible placement of every shape (each turn, each position).
+     - Repeatedly find the quarter that has the FEWEST placements able to
+       cover it (the hardest spot), and try those placements one by one.
+     - Placing a piece removes every other placement that would overlap it.
+     - If some quarter ends up with no placements left, undo the last choice
+       and try the next one (this is called "backtracking").
+     - When every quarter is covered, we have a tiling.
+
+   The order in which placements are tried is shuffled, so every run gives a
+   different picture.
+   ============================================================================= */
+
+// Builds the list of everything that needs covering ("units") and every way
+// a piece could be placed ("opts").
+function buildOptions() {
+  // Every quarter of every non-orange square must be covered.
+  const units = new Set();
+  for (let j = 0; j < H; j++)
+    for (let i = 0; i < W; i++)
+      if (!isOrange(i, j))
+        for (let d = 0; d < 4; d++) units.add(key(i, j, d));
+
+  // Every position where each turned shape fits entirely on white quarters.
+  const opts = [];
+  for (const s in SHAPES) {
+    for (const r of ROTATIONS) {
+      const q = turned(SHAPES[s], r);
+      for (let oy = -3; oy < H; oy++) {
+        for (let ox = -3; ox < W; ox++) {
+          const cov = q.map(([x, y, d]) => key(x + ox, y + oy, d));  // quarters this placement covers
+          if (cov.every(u => units.has(u))) opts.push({ shape: s, rot: r, cov });
+        }
+      }
+    }
+  }
+
+  // Filler pieces: half-square triangles (two neighbouring quarters).
+  // Only allowed in the outermost ring of squares, to patch gaps at the edge.
+  for (let j = 0; j < H; j++) {
+    for (let i = 0; i < W; i++) {
+      const onEdge = i === 0 || j === 0 || i === W - 1 || j === H - 1;
+      if (isOrange(i, j) || !onEdge) continue;
+      for (let d = 0; d < 4; d++)
+        opts.push({ shape: 'T', rot: d, cov: [key(i, j, d), key(i, j, (d + 1) % 4)] });
+    }
+  }
+  return { units, opts };
+}
+
+// Algorithm X. Returns a list of chosen placements, or null if it gave up.
+function solve(units, opts) {
+  // X: for each quarter still to cover -> the set of placements that could cover it.
+  const X = new Map();
+  for (const u of units) X.set(u, new Set());
+
+  // Give every placement a random priority (shuffles the result).
+  // Edge triangles get +10 so real shapes are always tried first.
+  opts.forEach((o, n) => {
+    o.pr = Math.random() + (o.shape === 'T' ? 10 : 0);
+    o.cov.forEach(u => X.get(u).add(n));
+  });
+
+  const sol = [];   // placements chosen so far
+  let nodes = 0;    // how many steps we've tried (to give up if it takes too long)
+
+  // Place piece r: remove the quarters it covers, and every other placement
+  // that overlaps it. Returns what was removed, so it can be put back.
+  function select(r) {
+    const cols = [];
+    for (const j of opts[r].cov) {
+      for (const i of X.get(j))
+        for (const k of opts[i].cov)
+          if (k !== j) X.get(k).delete(i);
+      cols.push(X.get(j));
+      X.delete(j);
+    }
+    return cols;
+  }
+
+  // Undo select(r): put everything back exactly as it was.
+  function deselect(r, cols) {
+    const cv = opts[r].cov;
+    for (let n = cv.length - 1; n >= 0; n--) {
+      const j = cv[n];
+      X.set(j, cols.pop());
+      for (const i of X.get(j))
+        for (const k of opts[i].cov)
+          if (k !== j) X.get(k).add(i);
+    }
+  }
+
+  function go() {
+    if (++nodes > 50000) return false;   // taking too long: give up (generate() will retry)
+    if (X.size === 0) return true;       // nothing left to cover: done!
+
+    // Find the quarter with the fewest ways to cover it.
+    let best = null, fewest = Infinity;
+    for (const [u, s] of X) {
+      if (s.size < fewest) { fewest = s.size; best = u; if (fewest <= 1) break; }
+    }
+
+    // Try each placement for it, in shuffled order.
+    for (const r of [...X.get(best)].sort((a, b) => opts[a].pr - opts[b].pr)) {
+      sol.push(r);
+      const cols = select(r);
+      if (go()) return true;   // it worked all the way to the end
+      deselect(r, cols);       // dead end: undo and try the next one
+      sol.pop();
+    }
+    return false;
+  }
+
+  return go() ? sol.map(n => opts[n]) : null;
+}
+
+// The 4 directions as steps on screen, in the same order as quarter numbers:
+// East, North, West, South.
+const D = [[1, 0], [0, -1], [-1, 0], [0, 1]];
+
+let pieces = [];          // the pieces in the current tiling (each has shape, rot, cov, color)
+let owner  = new Map();   // quarter label -> which piece (its index in `pieces`) covers it
+let grain  = null;        // the crayon texture image (made in makeGrain)
+
+// "New tiling" button: finds a new arrangement, makes it wonky, then colours and draws it.
+function generate() {
+  const { units, opts } = buildOptions();
+  let sol = null;
+  for (let t = 0; t < 20 && !sol; t++) sol = solve(units, opts.map(o => ({ ...o })));  // up to 20 tries
+  if (!sol) { document.getElementById('info').textContent = 'No tiling found - try again.'; return; }
+
+  pieces = sol;
+  owner = new Map();
+  sol.forEach((p, n) => p.cov.forEach(u => owner.set(u, n)));
+
+  // Short summary under the picture.
+  const kinds = new Set(sol.filter(p => p.shape !== 'T').map(p => p.shape + p.rot));
+  const tris  = sol.filter(p => p.shape === 'T').length;
+  document.getElementById('info').textContent =
+    `${sol.length - tris} pieces using ${kinds.size} of 12 shape/rotation combinations, plus ${tris} edge triangles`;
+
+  newWonk();   // new random grid offsets and line wobbles (section 5)
+  recolour();
+}
+
+
+/* =============================================================================
+   4. COLOURING
+   ============================================================================= */
+
+// "New colours" button: gives every piece a random colour from PALETTE,
+// avoiding the colours of the pieces it touches (so neighbours never match).
+function recolour() {
+  // Find each piece's neighbours by looking across every edge of every quarter.
+  const neighbours = pieces.map(() => new Set());
+  for (const [u, n] of owner) {
+    const [i, j, d] = u.split(',').map(Number);
+    const across = [
+      key(i + D[d][0], j + D[d][1], (d + 2) % 4),  // the quarter on the other side of the square's edge
+      key(i, j, (d + 1) % 4),                      // the quarters on either side of the diagonals
+      key(i, j, (d + 3) % 4),
+    ];
+    for (const v of across) {
+      const m = owner.get(v);
+      if (m !== undefined && m !== n) neighbours[n].add(m);
+    }
+  }
+
+  pieces.forEach(p => p.color = null);
+  pieces.forEach((p, n) => {
+    const used = new Set([...neighbours[n]].map(m => pieces[m].color));
+    const free = PALETTE.filter(col => !used.has(col));
+    const choices = free.length ? free : PALETTE;
+    p.color = choices[Math.floor(Math.random() * choices.length)];
+  });
+
+  grain = null;   // make a fresh texture too
+  render();
+}
+
+// ---- The "Colour scheme" row ----
+
+// Fills the scheme menu with the names from SCHEMES, plus "Custom",
+// which is selected automatically once you edit a colour.
+function setUpSchemeMenu() {
+  const menu = document.getElementById('scheme');
+  menu.innerHTML = Object.keys(SCHEMES).map(name => `<option>${name}</option>`).join('')
+                 + '<option value="custom" disabled>Custom</option>';
+}
+
+// Choosing a scheme from the menu: use its colours and recolour the picture.
+function pickScheme(name) {
+  PALETTE = [...SCHEMES[name]];
+  showChips();
+  recolour();
+}
+
+// Shows one chip per colour in PALETTE. Each chip is a colour picker
+// (click it to change that colour) with an "x" to remove the colour.
+function showChips() {
+  const box = document.getElementById('chips');
+  box.innerHTML = '';
+  PALETTE.forEach((colour, k) => {
+    const chip = document.createElement('span');
+    chip.className = 'chip';
+    chip.innerHTML = `<input type="color" value="${colour}" title="Click to change this colour"><button title="Remove this colour">×</button>`;
+
+    // Changing a colour: every piece painted in the old colour switches to
+    // the new one straight away, without changing anything else.
+    const picker = chip.querySelector('input');
+    picker.oninput = () => {
+      const old = PALETTE[k];
+      PALETTE[k] = picker.value;
+      pieces.forEach(p => { if (p.color === old) p.color = picker.value; });
+      markCustom();
+      render();
+    };
+
+    // Removing a colour (always keeps at least 2), then recolouring.
+    chip.querySelector('button').onclick = () => {
+      if (PALETTE.length <= 2) { alert('A scheme needs at least 2 colours.'); return; }
+      PALETTE.splice(k, 1);
+      markCustom();
+      showChips();
+      recolour();
+    };
+    box.appendChild(chip);
+  });
+}
+
+// "+ Add colour" button: adds a random colour (click its chip to change it).
+function addColour() {
+  PALETTE.push('#' + Math.floor(Math.random() * 0xffffff).toString(16).padStart(6, '0'));
+  markCustom();
+  showChips();
+  recolour();
+}
+
+// Shows "Custom" in the menu once the colours no longer match a ready-made scheme.
+function markCustom() {
+  document.getElementById('scheme').value = 'custom';
+}
+
+
+/* =============================================================================
+   5. DRAWING  (this is where the "wonky" happens)
+   -----------------------------------------------------------------------------
+   Two things make this version wonky:
+
+   a) WONKY GRID. Every grid corner is nudged by a small random amount, so the
+      squares become slightly irregular four-sided shapes. The centre of each
+      square is put where its two diagonals cross, so a diagonal edge still
+      runs straight across its square. Corners on the outside edge only slide
+      ALONG the edge, so the picture keeps a straight frame.
+      In sample.jpg most corners are off by about 3-5% of a square and a few by
+      up to about 12%. The default setting (12%) gives exactly that: offsets
+      are mostly small, and 12% is the most any corner can move.
+      Strength: the "Grid wonkiness" slider.
+
+   b) HAND-DRAWN LINES. Every line between two points is drawn as a gently
+      wavering line instead of a perfectly straight one: a slight bow plus two
+      small wiggles, fading to nothing at both ends so lines still meet at the
+      corners. Each line's wobble is worked out once and used by the pieces on
+      BOTH sides of it, so colours still meet with no gaps. Lines along the
+      outer frame stay straight.
+      Strength: the "Line wobble" slider.
+
+   The random numbers are kept as values between -1 and 1, and only multiplied
+   by the slider settings when drawing. So dragging a slider changes the amount
+   smoothly without reshuffling everything; "Re-wonk" makes new random numbers.
+   ============================================================================= */
+
+const S = c.width / W;   // size of one square in pixels
+
+// Current slider settings, as fractions of a square (0.12 = 12%).
+const wonk = { grid: 0.12, wobble: 0.03 };
+
+let jitter  = new Map();   // grid corner "i,j" -> its random offset [dx, dy] (each -1..1)
+let wobbles = new Map();   // line id -> its random wobble numbers
+
+// A random number from -1 to 1 that is usually close to 0
+// (the average of 3 dice rolls), so big offsets are rare, like in the sample.
+const wobbleRandom = () => (Math.random() + Math.random() + Math.random() - 1.5) / 1.5;
+
+// New random corner offsets and line wobbles ("New tiling" and "Re-wonk").
+function newWonk() {
+  jitter = new Map();
+  wobbles = new Map();
+  for (let j = 0; j <= H; j++) {
+    for (let i = 0; i <= W; i++) {
+      let dx = wobbleRandom(), dy = wobbleRandom();
+      if (i === 0 || i === W) dx = 0;   // left / right edge: only slide up and down
+      if (j === 0 || j === H) dy = 0;   // top / bottom edge: only slide sideways
+      jitter.set(i + ',' + j, [dx, dy]);
+    }
+  }
+}
+
+// ---- Points ----
+// Each point has a name: "c3,5" = grid corner (3,5), "m3,5" = centre of square (3,5).
+
+// Where grid corner (i, j) is, in pixels, after its wonky offset.
+function cornerPoint(i, j) {
+  const [dx, dy] = jitter.get(i + ',' + j);
+  return [(i + dx * wonk.grid) * S, (j + dy * wonk.grid) * S];
+}
+
+// Where the centre of square (i, j) is: the point where its two diagonals cross.
+function centrePoint(i, j) {
+  const p = cornerPoint(i, j),     q = cornerPoint(i + 1, j + 1);   // diagonal 1: top-left to bottom-right
+  const u = cornerPoint(i + 1, j), v = cornerPoint(i, j + 1);       // diagonal 2: top-right to bottom-left
+  const d1 = [q[0] - p[0], q[1] - p[1]], d2 = [v[0] - u[0], v[1] - u[1]];
+  const t = ((u[0] - p[0]) * d2[1] - (u[1] - p[1]) * d2[0]) / (d1[0] * d2[1] - d1[1] * d2[0]);
+  return [p[0] + t * d1[0], p[1] + t * d1[1]];
+}
+
+function point(name) {
+  const [i, j] = name.slice(1).split(',').map(Number);
+  return name[0] === 'c' ? cornerPoint(i, j) : centrePoint(i, j);
+}
+
+// ---- Hand-drawn lines ----
+
+let lineCache = new Map();   // lines already worked out during this redraw
+
+// Returns the wavering line from point A to point B as a list of [x, y] points.
+// The list also carries .w, the line's random numbers (used for pencil strokes).
+function wobblyLine(nameA, nameB) {
+  // Store each line once, always in the same direction, so the pieces on
+  // both sides get exactly the same line (just reversed for one of them).
+  const flip = nameA > nameB;
+  const [p, q] = flip ? [nameB, nameA] : [nameA, nameB];
+  const id = p + '|' + q;
+
+  let pts = lineCache.get(id);
+  if (!pts) {
+    let w = wobbles.get(id);
+    if (!w) {
+      w = { bow: wobbleRandom(), a1: wobbleRandom(), a2: wobbleRandom(),
+            f1: Math.random() * 2 * Math.PI, f2: Math.random() * 2 * Math.PI };
+      wobbles.set(id, w);
+    }
+    const A = point(p), B = point(q);
+    const dx = B[0] - A[0], dy = B[1] - A[1], len = Math.hypot(dx, dy);
+    const nx = -dy / len, ny = dx / len;   // direction straight out to the side of the line
+
+    // Lines lying along the outer frame stay straight.
+    const onFrame = (dx === 0 && (A[0] === 0 || A[0] === c.width)) ||
+                    (dy === 0 && (A[1] === 0 || A[1] === c.height));
+    const amount = onFrame ? 0 : wonk.wobble * S;
+
+    pts = [];
+    const steps = Math.max(2, Math.ceil(len / 5));   // a point every ~5 pixels
+    for (let k = 0; k <= steps; k++) {
+      const t = k / steps;
+      const fade = Math.sin(Math.PI * t);            // 0 at both ends, 1 in the middle
+      const side = amount * fade * (0.6 * w.bow                                    // gentle bow
+                                  + 0.35 * w.a1 * Math.sin(3 * Math.PI * t + w.f1) // slow wiggle
+                                  + 0.2 * w.a2 * Math.sin(8 * Math.PI * t + w.f2)); // small fast wiggle
+      pts.push([A[0] + dx * t + nx * side, A[1] + dy * t + ny * side]);
+    }
+    pts.w = w;
+    lineCache.set(id, pts);
+  }
+  if (!flip) return pts;
+  const back = pts.slice().reverse();
+  back.w = pts.w;
+  return back;
+}
+
+// Joins several lines into one outline (a list of points going round a shape).
+function outline(names) {
+  const pts = [];
+  for (let k = 0; k < names.length; k++) pts.push(...wobblyLine(names[k], names[(k + 1) % names.length]));
+  return pts;
+}
+
+// Follows a list of points with the pen (doesn't draw yet).
+function trace(pts, dx = 0, dy = 0) {
+  ctx.moveTo(pts[0][0] + dx, pts[0][1] + dy);
+  for (let k = 1; k < pts.length; k++) ctx.lineTo(pts[k][0] + dx, pts[k][1] + dy);
+}
+
+// Draws one line like a pencil stroke: a main stroke whose thickness varies a
+// little from line to line, plus a faint thinner second stroke just beside it.
+function pencil(pts, width) {
+  const w = pts.w;
+  ctx.lineWidth = width * (0.85 + 0.2 * w.a1);
+  ctx.beginPath(); trace(pts); ctx.stroke();
+  ctx.globalAlpha = 0.45;
+  ctx.lineWidth = width * 0.5;
+  ctx.beginPath(); trace(pts, 0.7 * w.a2, 0.7 * w.bow); ctx.stroke();
+  ctx.globalAlpha = 1;
+}
+
+// The two outer corners of quarter d in square (i, j), as point names.
+// (The third corner of every quarter is the square's centre.)
+function corners(i, j, d) {
+  const cn = (x, y) => 'c' + x + ',' + y;
+  return [
+    [cn(i + 1, j),     cn(i + 1, j + 1)],   // 0 East:  right edge
+    [cn(i, j),         cn(i + 1, j)],       // 1 North: top edge
+    [cn(i, j + 1),     cn(i, j)],           // 2 West:  left edge
+    [cn(i + 1, j + 1), cn(i, j + 1)],       // 3 South: bottom edge
+  ][d];
+}
+
+// Crayon-like texture: 60,000 short, faint diagonal strokes (half light, half
+// dark) drawn on a separate transparent image and laid over the colours.
+// Made once per colouring so it doesn't change every time the page redraws.
+// To make the texture stronger or softer, change the numbers after "Math.random()*"
+// in the rgba(...) values (these are how see-through the strokes are).
+function makeGrain() {
+  const g = document.createElement('canvas');
+  g.width = c.width; g.height = c.height;
+  const x = g.getContext('2d');
+  x.lineCap = 'round';
+  for (let n = 0; n < 60000; n++) {
+    const px = Math.random() * g.width, py = Math.random() * g.height;
+    const angle  = -1.05 + (Math.random() - 0.5) * 0.5;   // roughly 60°, like hand shading
+    const length = 3 + Math.random() * 9;
+    x.strokeStyle = Math.random() < 0.5
+      ? `rgba(255,255,255,${0.05 + Math.random() * 0.1})`
+      : `rgba(30,10,40,${0.04 + Math.random() * 0.08})`;
+    x.lineWidth = 0.6 + Math.random() * 1.1;
+    x.beginPath();
+    x.moveTo(px, py);
+    x.lineTo(px + Math.cos(angle) * length, py + Math.sin(angle) * length);
+    x.stroke();
+  }
+  return g;
+}
+
+// Current settings of the on/off buttons and the outline colour.
+const opt = {
+  outlines: true,                 // "Outlines" button
+  colours:  true,                 // "Colours" button
+  texture:  true,                 // "Texture" button (crayon grain)
+  line:     'rgb(200,200,200)',   // outline colour (set by the R/G/B sliders)
+};
+
+// Draws the whole picture. Called whenever anything changes.
+function render() {
+  lineCache = new Map();   // positions may have changed (sliders), so work lines out afresh
+  ctx.lineJoin = ctx.lineCap = 'round';
+
+  // White background.
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(0, 0, c.width, c.height);
+
+  if (opt.colours) {
+    // Orange squares (four wobbly sides each).
+    ctx.fillStyle = ctx.strokeStyle = ORANGE;
+    ctx.lineWidth = 1;
+    for (let j = 0; j < H; j++) {
+      for (let i = 0; i < W; i++) {
+        if (!isOrange(i, j)) continue;
+        ctx.beginPath();
+        trace(outline(['c' + i + ',' + j, 'c' + (i + 1) + ',' + j, 'c' + (i + 1) + ',' + (j + 1), 'c' + i + ',' + (j + 1)]));
+        ctx.closePath(); ctx.fill(); ctx.stroke();
+      }
+    }
+
+    // Every piece, one quarter-triangle at a time, in that piece's colour.
+    // (Each triangle is also stroked in the same colour to hide hairline gaps.)
+    for (const [u, n] of owner) {
+      const [i, j, d] = u.split(',').map(Number);
+      const [a, b] = corners(i, j, d);
+      ctx.fillStyle = ctx.strokeStyle = pieces[n].color;
+      ctx.beginPath();
+      trace(outline(['m' + i + ',' + j, a, b]));
+      ctx.closePath(); ctx.fill(); ctx.stroke();
+    }
+
+    // Crayon texture on top (if the "Texture" button is on).
+    if (opt.texture) {
+      if (!grain) grain = makeGrain();
+      ctx.drawImage(grain, 0, 0);
+    }
+  }
+
+  // Lines between pieces:
+  //   outlines on  -> pencil-like lines in the chosen colour
+  //   outlines off -> thin soft shadow lines (only if colours are on)
+  if (opt.outlines || opt.colours) {
+    ctx.strokeStyle = opt.outlines ? opt.line : 'rgba(40,20,50,.22)';
+
+    // For each quarter, draw an edge only where the quarter next to it belongs
+    // to a different piece (or to nothing: orange square / outside the picture).
+    // `done` makes sure each line is only drawn once.
+    const done = new Set();
+    const edge = (A, B) => {
+      const id = A < B ? A + '|' + B : B + '|' + A;
+      if (done.has(id)) return;
+      done.add(id);
+      const pts = wobblyLine(A, B);
+      if (opt.outlines) pencil(pts, 3);
+      else { ctx.lineWidth = 1.5; ctx.beginPath(); trace(pts); ctx.stroke(); }
+    };
+    for (const [u, n] of owner) {
+      const [i, j, d] = u.split(',').map(Number);
+      const [a, b] = corners(i, j, d);
+      // the square's own edge
+      if (owner.get(key(i + D[d][0], j + D[d][1], (d + 2) % 4)) !== n) edge(a, b);
+      // the diagonal from the centre to corner b (shared with quarter d+3)
+      if (owner.get(key(i, j, (d + 3) % 4)) !== n) edge('m' + i + ',' + j, b);
+    }
+
+    // With outlines on, also draw the outer frame (fully visible, just inside the edge).
+    if (opt.outlines) { ctx.lineWidth = 3; ctx.strokeRect(1.5, 1.5, c.width - 3, c.height - 3); }
+  }
+
+  drawGrid();
+}
+
+// Faint (wonky) grid lines over everything, when "Show grid" is ticked.
+function drawGrid() {
+  if (!document.getElementById('lines').checked) return;
+  ctx.strokeStyle = '#0004';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  for (let j = 0; j <= H; j++)
+    for (let i = 0; i <= W; i++) {
+      if (i < W) trace(wobblyLine('c' + i + ',' + j, 'c' + (i + 1) + ',' + j));
+      if (j < H) trace(wobblyLine('c' + i + ',' + j, 'c' + i + ',' + (j + 1)));
+    }
+  ctx.stroke();
+}
+
+
+/* =============================================================================
+   6. BUTTONS AND SLIDERS
+   ============================================================================= */
+
+// "Outlines", "Colours" and "Texture" buttons: flips the setting on/off, updates the
+// button's label ("...: on" / "...: off") and redraws.
+function toggle(name, btn) {
+  opt[name] = !opt[name];
+  btn.setAttribute('aria-pressed', opt[name]);   // makes the button purple when on
+  btn.textContent = btn.textContent.split(':')[0] + ': ' + (opt[name] ? 'on' : 'off');
+  render();
+}
+
+// R / G / B sliders: reads the three values, shows the numbers and the
+// preview swatch, and redraws the outlines in the new colour.
+function lineColour() {
+  const v = ['r', 'g', 'b'].map(id => document.getElementById(id).value);
+  ['r', 'g', 'b'].forEach((id, k) => document.getElementById(id + 'v').textContent = v[k]);
+  opt.line = `rgb(${v})`;
+  document.getElementById('swatch').style.background = opt.line;
+  render();
+}
+
+// "Orange tile colour" R / G / B sliders (just below the page title): same idea,
+// but changes the colour of the fixed orange squares.
+function orangeColour() {
+  const v = ['or', 'og', 'ob'].map(id => document.getElementById(id).value);
+  ['or', 'og', 'ob'].forEach((id, k) => document.getElementById(id + 'v').textContent = v[k]);
+  ORANGE = `rgb(${v})`;
+  document.getElementById('oswatch').style.background = ORANGE;
+  render();
+}
+
+
+// "Wonkiness" sliders: read both values, show them as percentages and redraw.
+// (The random offsets stay the same, only how strongly they are used changes.)
+function setWonk() {
+  const g = Number(document.getElementById('wgrid').value);
+  const l = Number(document.getElementById('wline').value);
+  document.getElementById('wgridv').textContent = g + '%';
+  document.getElementById('wlinev').textContent = l + '%';
+  wonk.grid = g / 100;
+  wonk.wobble = l / 100;
+  render();
+}
+
+
+/* =============================================================================
+   7. SAVING AND PRINTING
+   (The "Print" button just calls the browser's window.print(). The print
+   layout is set by the @media print rules in the <style> section.)
+   ============================================================================= */
+
+// "Save PNG" button: downloads the picture as an image file.
+function save() {
+  const a = document.createElement('a');
+  a.download = 'wonky-tiling.png';
+  a.href = c.toDataURL('image/png');
+  a.click();
+}
+
+// "Save PDF" button: puts the picture, centred, on an A4 page (12 mm margins).
+//   - Chrome / Edge: opens the normal "Save as" window (showSaveFilePicker).
+//   - Other browsers: downloads it to the Downloads folder.
+async function savePdf() {
+  if (!window.jspdf) {
+    alert('The PDF library could not load (no internet?). Use Print and choose "Save as PDF" instead.');
+    return;
+  }
+  const pdf = new jspdf.jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait' });
+  const pageW = 210, pageH = 297, margin = 12;   // A4 size in mm
+  const scale = Math.min((pageW - 2 * margin) / c.width, (pageH - 2 * margin) / c.height);
+  const w = c.width * scale, h = c.height * scale;
+  pdf.addImage(c.toDataURL('image/png'), 'PNG', (pageW - w) / 2, (pageH - h) / 2, w, h);
+
+  const blob = pdf.output('blob');
+  const name = 'wonky-tiling.pdf';
+
+  if (window.showSaveFilePicker) {
+    try {
+      const fh = await showSaveFilePicker({
+        suggestedName: name,
+        types: [{ description: 'PDF document', accept: { 'application/pdf': ['.pdf'] } }],
+      });
+      const ws = await fh.createWritable();
+      await ws.write(blob);
+      await ws.close();
+    } catch (e) {
+      if (e.name !== 'AbortError') alert('Could not save: ' + e.message);   // AbortError = user pressed Cancel
+    }
+    return;
+  }
+
+  // Fallback: ordinary download.
+  const a = document.createElement('a');
+  a.download = name;
+  a.href = URL.createObjectURL(blob);
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+}
+
+
+/* =============================================================================
+   START: set up the colour scheme row and make the first picture as soon
+   as the page opens.
+   ============================================================================= */
+setUpSchemeMenu();
+showChips();
+generate();
+</script>
+</html>
